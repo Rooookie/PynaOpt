@@ -21,8 +21,7 @@ else:
 import tkFileDialog
 
 # Import my modules
-import tkdialog
-reload(tkdialog)
+from tkdialog import * 
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
@@ -34,6 +33,15 @@ from PIL import Image, ImageTk
 __colors__ = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
 __configs__ = cp.ConfigParser()
+
+__extopen__ = {"nt": "start ",
+                "posix": "open "}
+
+def ext_open(fname):
+    try:
+        os.system(__extopen__[os.name] + fname) 
+    except KeyError:
+        pass
 
 class PlotItem(pd.DataFrame):
     """Data to generate plots with matplotlib
@@ -87,6 +95,7 @@ class DataMonitor(Tk.Frame):
         """
         Tk.Frame.__init__(self, parent, *args, **kwargs)
         self.parent = parent
+        self.confirm = True;
 
         self._construct_menubar()
         self._construct_canvas()
@@ -127,10 +136,14 @@ class DataMonitor(Tk.Frame):
         # Load button
         # _image_load = ImageTk.PhotoImage(Image.open(os.getcwd()+'/images/LoadIcon.png'))
         # _button_load = Tk.Button(self.toolbar, image=_image_load, command=self.load_data_file)
-        button_load = Tk.Button(self.toolbar, text='Load', command=self.load_data_file)
+        button_load = Tk.Button(self.toolbar, text='Load',
+        command=self.load_data_file)
+        self.button_reload = Tk.Button(self.toolbar, text='Reload',
+        command=self.reload_plot, state='disabled')
 
         button_load.pack(side='left',fill='both')
-        toolbar.pack(side='left',anchor='w',after=button_load)
+        self.button_reload.pack(side='left',fill='both')
+        toolbar.pack(side='left',anchor='w',after=self.button_reload)
         
     def _construct_minibuffer(self):
         """
@@ -143,14 +156,14 @@ class DataMonitor(Tk.Frame):
         self.parent.destroy()  # this is necessary on Windows to prevent
         # Fatal Python Error: PyEval_RestoreThread: NULL tstate    
 
-    def generate_plot(self, PlotItem):
+    def generate_plot(self):
         """
         """
-        self.checkbar = CheckBar(PlotItem, self.refresh_plot, parent=self.parent)
+        self.checkbar = CheckBar(self.plot_item, self.refresh_plot, parent=self.parent)
         self.checkbar.grid(row=1, column=1, sticky='n')
-        self.refresh_plot(PlotItem)
+        self.refresh_plot()
 
-    def refresh_plot(self, plot_item):
+    def refresh_plot(self):
         """
         """
         matplotlib.rc('lines', linewidth=2)
@@ -161,9 +174,9 @@ class DataMonitor(Tk.Frame):
         subplot = self.figure.add_subplot(1,1,1)
         subplot.clear()
         if item_plot_flag[-1]:
-            my_item = plot_item.normalized_data()
+            my_item = self.plot_item.normalized_data()
         else:
-            my_item = plot_item
+            my_item = self.plot_item
         for index, column in enumerate(my_item, start=0):   # iterate over columns
             if item_plot_flag[index]:
                 subplot.plot(my_item.index, my_item[column],
@@ -175,13 +188,30 @@ class DataMonitor(Tk.Frame):
         """
         """
         try:
-            file_name = tkFileDialog.askopenfilename(initialdir=os.getcwd(), title='Load data')
-            self.minibuffer.mini_message("Load result data from " + file_name)
+            self.file_name = tkFileDialog.askopenfilename(initialdir=os.getcwd(), title='Load data')
+            self.minibuffer.mini_message("Load result data from " + self.file_name)
         except (UnboundLocalError, IOError) as error:
-            self.minibuffer.mini_message("Data file ncot found!")
+            self.minibuffer.mini_message("Data file not found!")
+        if self.file_name:
+            YsDialog(self.file_name, self)
+            if self.confirm:
+                self.button_reload.configure(state='normal')
+                self.button_reload.update()
+                self.plot_item = self.read_file(self.file_name)
+                self.generate_plot()
+            
+    def reload_plot(self):
+        """
+        """
+        self.read_file(self.file_name)
+        self.refresh_plot()
+        
+    def read_file(self, fname, ext=None):
+        """
+        """
+        if not ext:
+            _, ext = os.path.splitext(fname)
 
-        _, extension = os.path.splitext(file_name)
-        data_dialog = YsDialog(self)
         header = __configs__.getint('DataMonitor','header')
         skiprows = __configs__.get('DataMonitor','skiprows')
         index_col = __configs__.getint('DataMonitor','index_col')
@@ -189,16 +219,22 @@ class DataMonitor(Tk.Frame):
         if is_list:                       # if_list is true, return a list 
             skiprows = [int(num) for num in skiprows.split(',')]
         else:                             # if_list if false, return an integer
-            skiprows = int(skiprows)               
-        if extension == '.csv': 
-            plot_item = PlotItem.read_csv(file_name, header=header,
-                                          skiprows=skiprows, index_col=index_col)
-        elif extension == '.xls':
-            pass                
-        self.generate_plot(plot_item)
+            skiprows = int(skiprows)
 
+        if ext == '.csv': 
+            plot_item = PlotItem.read_csv(fname, header=header,
+        skiprows=skiprows, index_col=index_col)            
+        elif ext == '.xls':
+            pass                
+
+        return plot_item
+
+    
 class CheckBar(Tk.Frame):
-    """
+    """An array of CheckButtons for column-wise switches of the plotted
+    dataframe. Input arguments:
+    PlotItem: data frame to be visualized
+    callback: callback function
     """
     def __init__(self, PlotItem, callback, parent=None, side='top', anchor='w'):
         Tk.Frame.__init__(self, parent)
@@ -211,11 +247,11 @@ class CheckBar(Tk.Frame):
             check = Tk.Checkbutton(self, text=pick, width=18,
                                     bg=__colors__[index], variable=value,
                                    anchor='w', justify='left', 
-                                   command=lambda: callback(PlotItem))
+                                   command=callback)
             check.pack(side=side, anchor=anchor, expand='no')
             self.values.append(value)
         value_normalized = Tk.BooleanVar()
-        check_normalized = Tk.Checkbutton(self, text='Scaled [0,1]', variable=value_normalized, justify='left',command=lambda: callback(PlotItem))
+        check_normalized = Tk.Checkbutton(self, text='Scaled [0,1]', variable=value_normalized, justify='left',command=callback)
         check_normalized.pack(side=side, anchor=anchor, expand='no')
         self.values.append(value_normalized)
         
@@ -242,22 +278,27 @@ class MiniBuffer(Tk.Frame):
     def mini_message(self, message):
         self.strvar.set(message)
 
-class YsDialog(tkdialog.Dialog):
+class YsDialog(Dialog):
 
-    def __init__(self, parent=None):
-        tkdialog.Dialog.__init__(self, parent)
+    def __init__(self, fname, parent=None):
+        self.file_name = fname
+        Dialog.__init__(self, parent)
 
-    def body(self, parent):
+    def construct_body(self):
 
+        box = Tk.Frame(self)
+        box.pack()
+        
+        self.has_header = Tk.StringVar()
         self.is_list = Tk.StringVar()     # ConfigParser - full functionality (including interpolation and output to files) can only be achieved using string values
-
-        Tk.Label(parent, text="Header row:").grid(row=0)
-        Tk.Label(parent, text="Skip rows:").grid(row=1)
-        Tk.Label(parent, text="Index column:").grid(row=2)
-
-        self.entry1 = Tk.Entry(parent)
-        self.entry2 = Tk.Entry(parent)
-        self.entry3 = Tk.Entry(parent)
+        
+        Tk.Label(box, text="Header row:").grid(row=0)
+        Tk.Label(box, text="Skip rows:").grid(row=1)
+        Tk.Label(box, text="Index column:").grid(row=2)
+        Tk.Button(box, text="Check file", command=lambda: ext_open(self.file_name)).grid(row=0, column=3)
+        self.entry1 = Tk.Entry(box)
+        self.entry2 = Tk.Entry(box)
+        self.entry3 = Tk.Entry(box)
 
         # provide default values from last saved options
         try:
@@ -265,6 +306,7 @@ class YsDialog(tkdialog.Dialog):
             self.entry2.insert(0, __configs__.get('DataMonitor','skiprows'))
             self.entry3.insert(0, __configs__.get('DataMonitor','index_col'))
             self.is_list.set(__configs__.getint('DataMonitor','is_list'))
+            self.has_header.set(__configs__.getint('DataMonitor','has_header'))
         except (cp.NoSectionError, cp.NoOptionError):
             pass
         
@@ -272,7 +314,10 @@ class YsDialog(tkdialog.Dialog):
         self.entry2.grid(row=1, column=1)
         self.entry3.grid(row=2, column=1)
 
-        Tk.Checkbutton(parent, text="list", variable=self.is_list).grid(row=1,column=3)
+        Tk.Checkbutton(box, text='header',
+        variable=self.has_header, command=lambda: YsDialog.naccheck(self.entry1,self.has_header)).grid(row=0, column=2, sticky='w')
+        Tk.Checkbutton(box, text='list', variable=self.is_list).grid(row=1,
+        column=2, sticky='w')
         
         return self.entry1 # initial focus
 
@@ -284,8 +329,18 @@ class YsDialog(tkdialog.Dialog):
         __configs__.set('DataMonitor','skiprows', self.entry2.get())
         __configs__.set('DataMonitor','index_col', self.entry3.get())
         __configs__.set('DataMonitor','is_list', self.is_list.get())
+        __configs__.set('DataMonitor','has_header', self.has_header.get())
         __configs__.write(open("option.ini", "w"))
-                
+
+    @staticmethod
+    def naccheck(entry, var):
+        if int(var.get()):
+            entry.configure(state='normal')
+        else:       
+            entry.configure(state='disabled')
+        entry.update()
+
+
 def main():
 #    matplotlib.use('TkAgg')
     __configs__.read('option.ini')
@@ -294,15 +349,14 @@ def main():
     root.grid_rowconfigure(0,weight=1) 
     root.grid_columnconfigure(0,weight=1) 
     app = MainFrame(parent=root)
+    app.lift()
     app.mainloop()
+    
 
  
 if __name__ == '__main__':
     main()
     
-    
-
-
 """
 __colors__ = [(0.12,0.46,0.70), (1.00,0.50,0.05), (0.17,0.63,0.17), 
               (0.84,0.15,0.16), (0.58,0.40,0.74), (0.55,0.33,0.29), 
@@ -319,7 +373,7 @@ __colors__ = [(0.12,0.46,0.70), (1.00,0.50,0.05), (0.17,0.63,0.17),
 
                 item_plot_flag = [1]*PlotItem.count_item
 
-
+command=lambd :callback(PlotItem)
 with open(_file_name,'rU') as file:	# use file to refer to the file object
 _headers = file.readline().rstrip('\n').split(',')
 _headers = [name.strip('"').strip() for name in _headers]
@@ -333,3 +387,4 @@ _headers = [name.strip('"').strip() for name in _headers]
 #    app.generate_plot(myplot)
 
 """
+

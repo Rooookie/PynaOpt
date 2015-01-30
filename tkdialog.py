@@ -14,15 +14,12 @@ class Dialog(Tk.Toplevel):
 
         Tk.Toplevel.__init__(self, parent, *args, **kwargs)
         
-        self.transient(parent)
+        self.transient(parent)  # this widget is transient with regard to parent widget
         self.parent = parent
         self.result = None
 
-        body = Tk.Frame(self)
-        self.initial_focus = self.body(body)
-        body.pack(padx=5, pady=5)
+        self.initial_focus = self.construct_body()
 
-        self.construct_body()
         self.construct_button()
 
         self.grab_set()
@@ -33,7 +30,6 @@ class Dialog(Tk.Toplevel):
                                   parent.winfo_rooty()+50))
 
         self.initial_focus.focus_set()
-
         self.wait_window(self)
 
     
@@ -43,6 +39,9 @@ class Dialog(Tk.Toplevel):
         """Create dialog body.  Return widget that should have
         initial focus. This method should be overridden.
         """
+        body = Tk.Frame(self)
+        body.pack(padx=5, pady=5)
+
         pass
 
     def construct_button(self):
@@ -73,12 +72,14 @@ class Dialog(Tk.Toplevel):
         self.withdraw()
         self.update_idletasks()
         self.apply()
-        self.cancel_action()
+        self.parent.focus_set()
+        self.destroy()
 
     def cancel_action(self, event=None):
 
         # put focus back to the parent window
         self.parent.focus_set()
+        self.parent.confirm = False
         self.destroy()
 
     
@@ -91,3 +92,5 @@ class Dialog(Tk.Toplevel):
     def apply(self):
 
         pass # override
+
+
